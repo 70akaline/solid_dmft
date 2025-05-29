@@ -109,10 +109,16 @@ class CTSEGInterface(AbstractDMFTSolver):
             for degsh in self.sum_k.deg_shells[self.icrsh]:
                 orb_idx = np.array([int(key.split('_')[1]) for key in degsh])
                 unique_idx = list(set(orb_idx))
-                # Average over the diagonal elements indexed by unique_idx
-                U_tmp = sum(Uloc_dlr_2idx_prime.data[:, i, i] for i in unique_idx) / len(unique_idx)
-                for i in unique_idx:
-                    Uloc_dlr_2idx_prime.data[:, i, i] = U_tmp
+                # Sum over the diagonal and off-diagonal elements indexed by unique_idx separately
+                U_tmp_diag = sum(Uloc_dlr_2idx_prime.data[:, i, i] for i in unique_idx)
+                U_tmp_off = sum(Uloc_dlr_2idx_prime.data[:, i, j] for i, j in product(unique_idx, repeat=2)) - U_tmp_diag
+                U_tmp_diag /= len(unique_idx)
+                U_tmp_off /= (len(unique_idx)*(len(unique_idx)-1))
+                for i, j in product(unique_idx, repeat=2):
+                    if i == j:
+                        Uloc_dlr_2idx_prime.data[:, i, i] = U_tmp_diag
+                    else:
+                        Uloc_dlr_2idx_prime.data[:, i, j] = U_tmp_off
 
             # extract w=0 limit for analytic Sigma_Hartree for the impurity
             Uloc_w0_2idx_prime = make_gf_imfreq(Uloc_dlr_2idx_prime, n_iw=1)
@@ -484,15 +490,23 @@ class CTSEGInterface(AbstractDMFTSolver):
                 if i != j:
                     self.nn_time[j, i] << self.nn_time[i,j]
 
-        mpi.report("Symmetrizing the diagonal density-density susceptibility among orbitals.")
+        mpi.report("Symmetrizing the diagonal/off-diagonal density-density susceptibility among orbitals.")
         for degsh in self.sum_k.deg_shells[ish]:
             orb_idx = np.array([int(key.split('_')[1]) for key in degsh])
             unique_idx = list(set(orb_idx))
 
             # Average over the diagonal elements indexed by unique_idx
-            nn_tmp = sum(self.nn_time.data[:, i, i] for i in unique_idx) / len(unique_idx)
-            for i in unique_idx:
-                self.nn_time.data[:, i, i] = nn_tmp
+            nn_tmp_diag = sum(self.nn_time.data[:, i, i] for i in unique_idx)
+            nn_tmp_off = sum(
+                self.nn_time.data[:, i, j] for i, j in product(unique_idx, repeat=2)) - nn_tmp_diag
+            nn_tmp_diag /= len(unique_idx)
+            nn_tmp_off /= (len(unique_idx) * (len(unique_idx) - 1))
+            # Sum over the diagonal and off-diagonal elements indexed by unique_idx separately
+            for i, j in product(unique_idx, repeat=2):
+                if i == j:
+                    self.nn_time.data[:, i, i] = nn_tmp_diag
+                else:
+                    self.nn_time.data[:, i, j] = nn_tmp_off
 
         self.nn_freq = make_gf_from_fourier(self.nn_time, n_iw=self.general_params['n_iw'])
         if mpi.is_master_node():
@@ -555,9 +569,17 @@ class CTSEGInterface(AbstractDMFTSolver):
             unique_idx = list(set(orb_idx))
 
             # Average over the diagonal elements indexed by unique_idx
-            pi_tmp = sum(pi_iw_pb.data[:, i*norb+i, i*norb+i] for i in unique_idx) / len(unique_idx)
-            for i in unique_idx:
-                pi_iw_pb.data[:, i*norb+i, i*norb+i] = pi_tmp
+            pi_tmp_diag = sum(pi_iw_pb.data[:, i*norb+i, i*norb+i] for i in unique_idx)
+            pi_tmp_off = sum(
+                pi_iw_pb.data[:, i*norb+i, j*norb+j] for i, j in product(unique_idx, repeat=2)) - pi_tmp_diag
+            pi_tmp_diag /= len(unique_idx)
+            pi_tmp_off /= (len(unique_idx) * (len(unique_idx) - 1))
+            # Sum over the diagonal and off-diagonal elements indexed by unique_idx separately
+            for i, j in product(unique_idx, repeat=2):
+                if i == j:
+                    pi_iw_pb.data[:, i*norb+i, i*norb+i] = pi_tmp_diag
+                else:
+                    pi_iw_pb.data[:, i*norb+i, j*norb+j] = pi_tmp_off
 
         # fit to DLR
         pi_dlr_iw = Gf(mesh=self.gw_params['mesh_dlr_iw_b'], target_shape=pi_iw_pb.target_shape)
