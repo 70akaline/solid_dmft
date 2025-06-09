@@ -488,6 +488,8 @@ class CTSEGInterface(AbstractDMFTSolver):
                 #nn_tau_pos = self.nn_time[i, j].data[:ntau_half]
                 #self.nn_time[i, j].data[(ntau_half+1):] = nn_tau_pos[::-1]
                 if i != j:
+                    self.nn_time[i,j].data[:] += self.nn_time[j,i].data[:]
+                    self.nn_time[i,j].data[:] /= 2.0
                     self.nn_time[j, i] << self.nn_time[i,j]
 
         mpi.report("Symmetrizing the diagonal/off-diagonal density-density susceptibility among orbitals.")
@@ -580,6 +582,12 @@ class CTSEGInterface(AbstractDMFTSolver):
                     pi_iw_pb.data[:, i*norb+i, i*norb+i] = pi_tmp_diag
                 else:
                     pi_iw_pb.data[:, i*norb+i, j*norb+j] = pi_tmp_off
+
+        if self.solver_params['pi_zero_slope']:
+            mpi.report("Enforce Pi(iw=0) equals to its closest neighbor for numerical stability."
+                       "Once the EDMFT loop converges, set \"pi_zero_slope=false\" for further convergence.")
+            w0_idx = pi_iw_pb.mesh(0).data_index
+            pi_iw_pb.data[w0_idx] = pi_iw_pb.data[w0_idx+1]
 
         # fit to DLR
         pi_dlr_iw = Gf(mesh=self.gw_params['mesh_dlr_iw_b'], target_shape=pi_iw_pb.target_shape)
